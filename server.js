@@ -85,6 +85,13 @@ const adminSchema = new mongoose.Schema({
 
 const Admin = mongoose.model("Admin", adminSchema);
 
+const suggestionSchema = new mongoose.Schema({
+ song: {type: String, required: true},
+ artist: {type: String, required: true}
+})
+
+const Suggestion = mongoose.model("Suggestion", suggestionSchema);
+
 
 // Upload route
 app.post("/upload", verifyAdmin, upload.fields([{ name: "image" }, { name: "audio" }]), async (req, res) => {
@@ -141,6 +148,25 @@ app.delete('/track/:title', verifyAdmin, async (req, res) => {
   } catch (error) {
     console.error('Error deleting track:', error);
     res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// Sugguestion post Req
+app.post('/suggestion', async (req, res) => {
+  try {
+    const { song, artist } = req.body;
+
+    if (!song || !artist) {
+      return res.status(400).json({ error: 'Song and Artist fields are required.' });
+    }
+
+    const newSuggestion = new Suggestion({ song, artist });
+    await newSuggestion.save();
+
+    res.status(201).json({ message: 'Suggestion submitted successfully!' });
+  } catch (err) {
+    console.error('Error while saving suggestion:', err);
+    res.status(500).json({ error: 'Server error. Please try again later.' });
   }
 });
 
