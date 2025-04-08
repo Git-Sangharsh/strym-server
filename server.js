@@ -4,11 +4,11 @@ import mongoose from "mongoose";
 import { config as dotenvConfig } from "dotenv";
 import bodyParser from "body-parser";
 import multer from "multer";
-import path from "path";
+import { v2 as cloudinary } from "cloudinary";
+import { CloudinaryStorage } from "multer-storage-cloudinary";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
-import fs from 'fs';
-import { fileURLToPath } from 'url'; // For __dirname workaround if using ES Modules
+import path from "path";
 
 dotenvConfig();
 
@@ -16,41 +16,67 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 app.use(express.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-
-// Serve static files from "uploads" folder
-app.use("/uploads", express.static("uploads"));
+app.use(express.urlencoded({ extended: true }));
 
 // MongoDB Connection
-const envUserName = process.env.MONGODB_USERNAME;
-const envPassWord = process.env.MONGODB_PASSWORD;
-
 mongoose
-  .connect(`mongodb+srv://${envUserName}:${envPassWord}@mainnikedb.jx4pwkk.mongodb.net/beat`)
+  .connect(
+    `mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@mainnikedb.jx4pwkk.mongodb.net/beat`
+  )
   .then(() => console.log("Connected to MongoDB"))
   .catch((err) => console.error("Failed to connect to MongoDB", err));
 
-// Multer setup to save files in /uploads folder
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const fieldName = file.fieldname; // 'image' or 'audio'
+// Cloudinary Config
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
-    // Use a sanitized version of the title (replaces spaces/special chars)
+// Multer Cloudinary Storage Setup
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: async (req, file) => {
+    const folder = "beat-tracks";
     const rawTitle = req.body.title || "untitled";
     const sanitizedTitle = rawTitle.toLowerCase().replace(/\s+/g, "-").replace(/[^\w\-]/g, "");
 
-    cb(null, `${sanitizedTitle}-${fieldName}${ext}`);
+    return {
+      folder,
+      resource_type: file.mimetype.startsWith("audio") ? "video" : "image",
+      public_id: `${sanitizedTitle}-${file.fieldname}-${Date.now()}`,
+    };
   },
 });
 
-
 const upload = multer({ storage });
 
+// Mongoose Schemas
+const trackSchema = new mongoose.Schema({
+  title: String,
+  singer: String,
+  image: String,
+  audio: String,
+});
 
+const Track = mongoose.model("Track", trackSchema);
+
+const adminSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { type: String, default: "admin" },
+});
+
+const Admin = mongoose.model("Admin", adminSchema);
+
+const suggestionSchema = new mongoose.Schema({
+  song: { type: String, required: true },
+  artist: { type: String, required: true },
+});
+
+const Suggestion = mongoose.model("Suggestion", suggestionSchema);
+
+// Middleware: Verify Admin
 const verifyAdmin = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const token = authHeader?.split(" ")[1];
@@ -67,33 +93,7 @@ const verifyAdmin = (req, res, next) => {
   }
 };
 
-// Mongoose Schema with file paths (not buffer)
-const trackSchema = new mongoose.Schema({
-  title: String,
-  singer: String,
-  image: String, // path to image file
-  audio: String, // path to audio file
-});
-
-const Track = mongoose.model("Track", trackSchema);
-
-const adminSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  role: { type: String, default: "admin" },
-});
-
-const Admin = mongoose.model("Admin", adminSchema);
-
-const suggestionSchema = new mongoose.Schema({
- song: {type: String, required: true},
- artist: {type: String, required: true}
-})
-
-const Suggestion = mongoose.model("Suggestion", suggestionSchema);
-
-
-// Upload route
+// Upload Route
 app.post("/upload", verifyAdmin, upload.fields([{ name: "image" }, { name: "audio" }]), async (req, res) => {
   try {
     const { title, singer } = req.body;
@@ -102,14 +102,14 @@ app.post("/upload", verifyAdmin, upload.fields([{ name: "image" }, { name: "audi
       return res.status(400).json({ error: "All fields are required" });
     }
 
-    const imagePath = `/uploads/${req.files.image[0].filename}`;
-    const audioPath = `/uploads/${req.files.audio[0].filename}`;
+    const imageUrl = req.files.image[0].path;
+    const audioUrl = req.files.audio[0].path;
 
     const newTrack = new Track({
       title,
       singer,
-      image: imagePath,
-      audio: audioPath,
+      image: imageUrl,
+      audio: audioUrl,
     });
 
     await newTrack.save();
@@ -121,56 +121,43 @@ app.post("/upload", verifyAdmin, upload.fields([{ name: "image" }, { name: "audi
   }
 });
 
-app.delete('/track/:title', verifyAdmin, async (req, res) => {
+// Delete Track
+app.delete("/track/:title", verifyAdmin, async (req, res) => {
   try {
     const { title } = req.params;
-
-    // Find the track
     const track = await Track.findOne({ title });
 
-    if (!track) {
-      return res.status(404).json({ error: "Track not found" });
-    }
+    if (!track) return res.status(404).json({ error: "Track not found" });
 
-    // Paths to delete
-    const imagePath = path.join(process.cwd(), track.image); // "./uploads/image.png"
-    const audioPath = path.join(process.cwd(), track.audio); // "./uploads/audio.mp3"
-
-    // Delete files if they exist
-    if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
-    if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
-
-    // Delete track document
     await Track.deleteOne({ title });
 
-    res.json({ message: 'Track and associated files deleted successfully.' });
-
+    res.json({ message: "Track deleted from database (media still exists on Cloudinary)." });
   } catch (error) {
-    console.error('Error deleting track:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error("Error deleting track:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Sugguestion post Req
-app.post('/suggestion', async (req, res) => {
+// Submit Suggestion
+app.post("/suggestion", async (req, res) => {
   try {
     const { song, artist } = req.body;
 
     if (!song || !artist) {
-      return res.status(400).json({ error: 'Song and Artist fields are required.' });
+      return res.status(400).json({ error: "Song and Artist fields are required." });
     }
 
     const newSuggestion = new Suggestion({ song, artist });
     await newSuggestion.save();
 
-    res.status(201).json({ message: 'Suggestion submitted successfully!' });
+    res.status(201).json({ message: "Suggestion submitted successfully!" });
   } catch (err) {
-    console.error('Error while saving suggestion:', err);
-    res.status(500).json({ error: 'Server error. Please try again later.' });
+    console.error("Error while saving suggestion:", err);
+    res.status(500).json({ error: "Server error. Please try again later." });
   }
 });
 
-// Fetch all tracks (title, singer, audio path)
+// Get All Tracks
 app.get("/tracks", async (req, res) => {
   try {
     const tracks = await Track.find().select("title singer image audio -_id");
@@ -181,14 +168,7 @@ app.get("/tracks", async (req, res) => {
   }
 });
 
-// Test Route
-app.get("/", (req, res) => {
-  res.send("<h1>Hello World</h1>");
-});
-
-
-
-// Register Admin (run only once)
+// Admin Registration (one-time use)
 app.post("/register-admin", async (req, res) => {
   const { email, password } = req.body;
   const existing = await Admin.findOne({ email });
@@ -201,12 +181,10 @@ app.post("/register-admin", async (req, res) => {
   res.json({ message: "Admin registered successfully" });
 });
 
-// Login Admin
+// Admin Login
 app.post("/admin-login", async (req, res) => {
   const { email, password } = req.body;
   const user = await Admin.findOne({ email });
-  // console.log("Frontend sent:", email, password); // Debug
-
 
   if (!user) return res.status(401).json({ error: "Invalid email or password" });
 
@@ -220,9 +198,13 @@ app.post("/admin-login", async (req, res) => {
   res.json({ token });
 });
 
+// Test Route
+app.get("/", (req, res) => {
+  res.send("<h1>Beat API Server is Running</h1>");
+});
 
-
-const PORT = 3000;
+// Start Server
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
