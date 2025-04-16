@@ -160,7 +160,7 @@ app.post("/suggestion", async (req, res) => {
 // Get All Tracks
 app.get("/tracks", async (req, res) => {
   try {
-    const tracks = await Track.find();
+    const tracks = await Track.find().select("title singer image audio -_id");
     res.json(tracks);
   } catch (error) {
     console.error("Error fetching tracks:", error);
