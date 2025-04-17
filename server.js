@@ -75,6 +75,21 @@ const suggestionSchema = new mongoose.Schema({
 });
 
 const Suggestion = mongoose.model("Suggestion", suggestionSchema);
+// playlist Schema
+const playlistSchema = new mongoose.Schema({
+  name:{type: String, required: true},
+  tracks: [{ type: mongoose.Schema.Types.ObjectId, ref: "Track" }],
+})
+
+// userSchema
+const userSchema = new mongoose.Schema({
+  userName: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  playlists: [playlistSchema], // Add playlists to user schema
+
+});
+
+const userModel = mongoose.model("user", userSchema);
 
 // Middleware: Verify Admin
 const verifyAdmin = (req, res, next) => {
@@ -154,6 +169,60 @@ app.post("/suggestion", async (req, res) => {
   } catch (err) {
     console.error("Error while saving suggestion:", err);
     res.status(500).json({ error: "Server error. Please try again later." });
+  }
+});
+
+//  google auth
+app.post("/google-auth", async (req, res) => {
+  const { userName, email } = req.body;
+
+  if (!userName || !email) {
+    return res.status(400).json({ error: "Missing name or email" });
+  }
+
+  try {
+    // Check if user already exists
+    const existingUser = await userModel.findOne({ email });
+
+    if (existingUser) {
+      return res.status(200).json({ message: "User already exists", user: existingUser });
+    }
+
+    // Save new user
+    const newUser = new userModel({ userName, email });
+    await newUser.save();
+
+    res.status(201).json({ message: "User saved", user: newUser });
+  } catch (error) {
+    console.error("Error saving user:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// play list endpoiint
+app.post("/create-playlist", async (req, res) => {
+  const { email, playlistName, trackIds } = req.body;
+
+  try {
+    const user = await userModel.findOne({ email });
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Create new playlist object
+    const newPlaylist = {
+      name: playlistName,
+      tracks: trackIds,
+    };
+
+    // Add to user's playlists
+    user.playlists.push(newPlaylist);
+
+    await user.save();
+
+    res.status(200).json({ message: "Playlist created", user });
+  } catch (error) {
+    console.error("Error creating playlist:", error);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
