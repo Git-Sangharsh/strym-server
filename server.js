@@ -267,10 +267,144 @@ app.post("/admin-login", async (req, res) => {
   res.json({ token });
 });
 
+// get all playlist
+app.get("/get-playlist", async (req, res) => {
+  try {
+    const tracks = await Track.find();
+    res.json(tracks);
+  } catch (error) {
+    console.error("Error fetching tracks:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+})
+
 // Test Route
-app.get("/", (req, res) => {
-  res.send("<h1>Beat API Server is Running</h1>");
+app.post("/get-playlist", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const token = authHeader.split(" ")[1];
+    const decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+
+    const email = decoded?.email;
+    if (!email) {
+      return res.status(400).json({ error: "Invalid token" });
+    }
+
+    const user = await userModel.findOne({ email }).select("playlists");
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({ playlists: user.playlists });
+  } catch (error) {
+    console.error("Error fetching playlists:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
+
+
+// get specific playlist song
+app.post("/get-specific-playlist", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const { playlistName } = req.body;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  const decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+  const email = decoded?.email;
+
+  if (!email) {
+    return res.status(400).json({ error: "Invalid token" });
+  }
+
+  if (!playlistName) {
+    return res.status(400).json({ error: "playlistName is required" });
+  }
+
+  try {
+    const user = await userModel.findOne({ email }).lean(); // .lean() makes the result a plain object
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const playlist = user.playlists.find((pl) => pl.name === playlistName);
+    if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+
+    // Fetch full track documents
+    const populatedTracks = await Track.find({ _id: { $in: playlist.tracks } });
+
+    // Return the playlist with full track data
+    res.status(200).json({
+      playlist: {
+        name: playlist.name,
+        tracks: populatedTracks,
+      },
+    });
+  } catch (error) {
+    console.error("Error getting specific playlist:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/addto-playlist", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const { trackTitle, playlistTitle } = req.body;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  const decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+
+  const email = decoded?.email;
+  if (!email) {
+    return res.status(400).json({ error: "Invalid token" });
+  }
+
+  if (!trackTitle || !playlistTitle) {
+    return res.status(400).json({ error: "trackTitle and playlistTitle are required" });
+  }
+
+  try {
+    // 1. Find the user
+    const user = await userModel.findOne({ email });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // 2. Find the track by title
+    const track = await Track.findOne({ title: trackTitle });
+    if (!track) return res.status(404).json({ error: "Track not found" });
+
+    // 3. Find the playlist
+    const playlist = user.playlists.find(pl => pl.name === playlistTitle);
+    if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+
+    // 4. Check if the track already exists in the playlist
+    const alreadyExists = playlist.tracks.includes(track._id);
+    if (alreadyExists) {
+      return res.status(400).json({ error: "Track already in playlist" });
+    }
+
+    playlist.tracks.push(track._id);
+
+    // Saviing the user document
+    await user.save();
+
+    res.status(200).json({ message: "Track added to playlist successfully", playlist });
+  } catch (error) {
+    console.error("Error adding track to playlist:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 
 // Start Server
 const PORT = process.env.PORT || 3000;
