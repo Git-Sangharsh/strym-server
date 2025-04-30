@@ -81,12 +81,13 @@ const playlistSchema = new mongoose.Schema({
   tracks: [{ type: mongoose.Schema.Types.ObjectId, ref: "Track" }],
 })
 
+
 // userSchema
 const userSchema = new mongoose.Schema({
   userName: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   playlists: [playlistSchema], // Add playlists to user schema
-
+  likedTracks: [{ type: mongoose.Schema.Types.ObjectId, ref: "Track" }] // storing like songs
 });
 
 const userModel = mongoose.model("user", userSchema);
@@ -404,6 +405,88 @@ app.post("/addto-playlist", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
+// like endpoint
+app.post("/toggle-like", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const { trackId } = req.body;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  const decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+  const email = decoded?.email;
+
+  if (!email) {
+    return res.status(400).json({ error: "Invalid token" });
+  }
+
+  if (!trackId) {
+    return res.status(400).json({ error: "trackId is required" });
+  }
+
+  try {
+    const user = await userModel.findOne({ email });
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const isLiked = user.likedTracks.includes(trackId);
+
+    if (isLiked) {
+      // If already liked, unlike it (remove from likedTracks)
+      user.likedTracks = user.likedTracks.filter((id) => id.toString() !== trackId);
+    } else {
+      // If not liked, like it (add to likedTracks)
+      user.likedTracks.push(trackId);
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      message: isLiked ? "Track unliked successfully" : "Track liked successfully",
+      likedTracks: user.likedTracks,
+    });
+  } catch (error) {
+    console.error("Error toggling like:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// get like songs
+app.get("/liked-tracks", async (req, res) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  const decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+  const email = decoded?.email;
+
+  if (!email) {
+    return res.status(400).json({ error: "Invalid token" });
+  }
+
+  try {
+    const user = await userModel.findOne({ email });
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Fetch full track documents
+    const likedTrackDocs = await Track.find({
+      _id: { $in: user.likedTracks },
+    });
+
+    res.status(200).json({ likedTracks: likedTrackDocs });
+  } catch (error) {
+    console.error("Error fetching liked track documents:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 
 
 // Start Server
