@@ -227,6 +227,55 @@ app.post("/create-playlist", async (req, res) => {
   }
 });
 
+// delete playlist
+app.post("/delete-playlist", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const { playlistName } = req.body;
+
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  let decoded;
+  try {
+    decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+  } catch (e) {
+    return res.status(400).json({ error: "Invalid token format" });
+  }
+
+  const email = decoded?.email;
+  if (!email) {
+    return res.status(400).json({ error: "Email not found in token" });
+  }
+
+  if (!playlistName) {
+    return res.status(400).json({ error: "playlistName is required" });
+  }
+
+  try {
+    const user = await userModel.findOne({ email });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const initialLength = user.playlists.length;
+    user.playlists = user.playlists.filter((pl) => pl.name !== playlistName);
+
+    if (user.playlists.length === initialLength) {
+      return res.status(404).json({ error: "Playlist not found" });
+    }
+
+    await user.save();
+
+    return res.status(200).json({ message: "Playlist deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting playlist:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+
+
 // Get All Tracks
 app.get("/tracks", async (req, res) => {
   try {
