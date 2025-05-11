@@ -39,7 +39,10 @@ const storage = new CloudinaryStorage({
   params: async (req, file) => {
     const folder = "beat-tracks";
     const rawTitle = req.body.title || "untitled";
-    const sanitizedTitle = rawTitle.toLowerCase().replace(/\s+/g, "-").replace(/[^\w\-]/g, "");
+    const sanitizedTitle = rawTitle
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^\w\-]/g, "");
 
     return {
       folder,
@@ -77,17 +80,16 @@ const suggestionSchema = new mongoose.Schema({
 const Suggestion = mongoose.model("Suggestion", suggestionSchema);
 // playlist Schema
 const playlistSchema = new mongoose.Schema({
-  name:{type: String, required: true},
+  name: { type: String, required: true },
   tracks: [{ type: mongoose.Schema.Types.ObjectId, ref: "Track" }],
-})
-
+});
 
 // userSchema
 const userSchema = new mongoose.Schema({
   userName: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   playlists: [playlistSchema], // Add playlists to user schema
-  likedTracks: [{ type: mongoose.Schema.Types.ObjectId, ref: "Track" }] // storing like songs
+  likedTracks: [{ type: mongoose.Schema.Types.ObjectId, ref: "Track" }], // storing like songs
 });
 
 const userModel = mongoose.model("user", userSchema);
@@ -100,7 +102,8 @@ const verifyAdmin = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.role !== "admin") return res.status(403).json({ error: "Access denied" });
+    if (decoded.role !== "admin")
+      return res.status(403).json({ error: "Access denied" });
 
     req.user = decoded;
     next();
@@ -110,32 +113,39 @@ const verifyAdmin = (req, res, next) => {
 };
 
 // Upload Route
-app.post("/upload", verifyAdmin, upload.fields([{ name: "image" }, { name: "audio" }]), async (req, res) => {
-  try {
-    const { title, singer } = req.body;
+app.post(
+  "/upload",
+  verifyAdmin,
+  upload.fields([{ name: "image" }, { name: "audio" }]),
+  async (req, res) => {
+    try {
+      const { title, singer } = req.body;
 
-    if (!req.files?.image || !req.files?.audio || !title || !singer) {
-      return res.status(400).json({ error: "All fields are required" });
+      if (!req.files?.image || !req.files?.audio || !title || !singer) {
+        return res.status(400).json({ error: "All fields are required" });
+      }
+
+      const imageUrl = req.files.image[0].path;
+      const audioUrl = req.files.audio[0].path;
+
+      const newTrack = new Track({
+        title,
+        singer,
+        image: imageUrl,
+        audio: audioUrl,
+      });
+
+      await newTrack.save();
+
+      res
+        .status(201)
+        .json({ message: "Track uploaded successfully", track: newTrack });
+    } catch (error) {
+      console.error("Error uploading track:", error);
+      res.status(500).json({ error: "Internal Server Error" });
     }
-
-    const imageUrl = req.files.image[0].path;
-    const audioUrl = req.files.audio[0].path;
-
-    const newTrack = new Track({
-      title,
-      singer,
-      image: imageUrl,
-      audio: audioUrl,
-    });
-
-    await newTrack.save();
-
-    res.status(201).json({ message: "Track uploaded successfully", track: newTrack });
-  } catch (error) {
-    console.error("Error uploading track:", error);
-    res.status(500).json({ error: "Internal Server Error" });
   }
-});
+);
 
 // Delete Track
 app.delete("/track/:title", verifyAdmin, async (req, res) => {
@@ -147,7 +157,10 @@ app.delete("/track/:title", verifyAdmin, async (req, res) => {
 
     await Track.deleteOne({ title });
 
-    res.json({ message: "Track deleted from database (media still exists on Cloudinary)." });
+    res.json({
+      message:
+        "Track deleted from database (media still exists on Cloudinary).",
+    });
   } catch (error) {
     console.error("Error deleting track:", error);
     res.status(500).json({ error: "Internal Server Error" });
@@ -160,7 +173,9 @@ app.post("/suggestion", async (req, res) => {
     const { song, artist } = req.body;
 
     if (!song || !artist) {
-      return res.status(400).json({ error: "Song and Artist fields are required." });
+      return res
+        .status(400)
+        .json({ error: "Song and Artist fields are required." });
     }
 
     const newSuggestion = new Suggestion({ song, artist });
@@ -186,7 +201,9 @@ app.post("/google-auth", async (req, res) => {
     const existingUser = await userModel.findOne({ email });
 
     if (existingUser) {
-      return res.status(200).json({ message: "User already exists", user: existingUser });
+      return res
+        .status(200)
+        .json({ message: "User already exists", user: existingUser });
     }
 
     // Save new user
@@ -274,8 +291,6 @@ app.post("/delete-playlist", async (req, res) => {
   }
 });
 
-
-
 // Get All Tracks
 app.get("/tracks", async (req, res) => {
   try {
@@ -305,14 +320,20 @@ app.post("/admin-login", async (req, res) => {
   const { email, password } = req.body;
   const user = await Admin.findOne({ email });
 
-  if (!user) return res.status(401).json({ error: "Invalid email or password" });
+  if (!user)
+    return res.status(401).json({ error: "Invalid email or password" });
 
   const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) return res.status(401).json({ error: "Invalid email or password" });
+  if (!isMatch)
+    return res.status(401).json({ error: "Invalid email or password" });
 
-  const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
-    expiresIn: "2h",
-  });
+  const token = jwt.sign(
+    { id: user._id, role: user.role },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: "2h",
+    }
+  );
 
   res.json({ token });
 });
@@ -326,7 +347,7 @@ app.get("/get-playlist", async (req, res) => {
     console.error("Error fetching tracks:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
-})
+});
 
 // Test Route
 app.post("/get-playlist", async (req, res) => {
@@ -338,7 +359,9 @@ app.post("/get-playlist", async (req, res) => {
     }
 
     const token = authHeader.split(" ")[1];
-    const decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+    const decoded = JSON.parse(
+      Buffer.from(token.split(".")[1], "base64").toString()
+    );
 
     const email = decoded?.email;
     if (!email) {
@@ -358,7 +381,6 @@ app.post("/get-playlist", async (req, res) => {
   }
 });
 
-
 // get specific playlist song
 app.post("/get-specific-playlist", async (req, res) => {
   const authHeader = req.headers.authorization;
@@ -369,7 +391,9 @@ app.post("/get-specific-playlist", async (req, res) => {
   }
 
   const token = authHeader.split(" ")[1];
-  const decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+  const decoded = JSON.parse(
+    Buffer.from(token.split(".")[1], "base64").toString()
+  );
   const email = decoded?.email;
 
   if (!email) {
@@ -413,7 +437,9 @@ app.post("/addto-playlist", async (req, res) => {
   }
 
   const token = authHeader.split(" ")[1];
-  const decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+  const decoded = JSON.parse(
+    Buffer.from(token.split(".")[1], "base64").toString()
+  );
 
   const email = decoded?.email;
   if (!email) {
@@ -421,7 +447,9 @@ app.post("/addto-playlist", async (req, res) => {
   }
 
   if (!trackTitle || !playlistTitle) {
-    return res.status(400).json({ error: "trackTitle and playlistTitle are required" });
+    return res
+      .status(400)
+      .json({ error: "trackTitle and playlistTitle are required" });
   }
 
   try {
@@ -434,7 +462,7 @@ app.post("/addto-playlist", async (req, res) => {
     if (!track) return res.status(404).json({ error: "Track not found" });
 
     // 3. Find the playlist
-    const playlist = user.playlists.find(pl => pl.name === playlistTitle);
+    const playlist = user.playlists.find((pl) => pl.name === playlistTitle);
     if (!playlist) return res.status(404).json({ error: "Playlist not found" });
 
     // 4. Check if the track already exists in the playlist
@@ -448,9 +476,66 @@ app.post("/addto-playlist", async (req, res) => {
     // Saviing the user document
     await user.save();
 
-    res.status(200).json({ message: "Track added to playlist successfully", playlist });
+    res
+      .status(200)
+      .json({ message: "Track added to playlist successfully", playlist });
   } catch (error) {
     console.error("Error adding track to playlist:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Remoce From Playlist
+app.post("/remove-from-playlist", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const { playlistName, trackId } = req.body;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  const decoded = JSON.parse(
+    Buffer.from(token.split(".")[1], "base64").toString()
+  );
+  const email = decoded?.email;
+
+  if (!email) {
+    return res.status(400).json({ error: "Invalid token" });
+  }
+
+  if (!playlistName || !trackId) {
+    return res.status(400).json({ error: "PlaylistName & trackId is missing" });
+  }
+
+  try {
+    const user = await userModel.findOne({ email });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Find the playlist
+    const playlist = user.playlists.find((pl) => pl.name === playlistName);
+    if (!playlist) return res.status(404).json({ error: "Playlist not found" });
+
+    // Check if track exists in playlist
+    const trackIndex = playlist.tracks.findIndex(
+      (id) => id.toString() === trackId
+    );
+    if (trackIndex === -1) {
+      return res.status(404).json({ error: "Track not found in playlist" });
+    }
+
+    // Remove the track from playlist
+    playlist.tracks.splice(trackIndex, 1);
+
+    // Save the updated user document
+    await user.save();
+
+    res.status(200).json({
+      message: "Track removed from playlist successfully",
+      playlist,
+    });
+  } catch (error) {
+    console.error("Error removing track from playlist:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -465,7 +550,9 @@ app.post("/toggle-like", async (req, res) => {
   }
 
   const token = authHeader.split(" ")[1];
-  const decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+  const decoded = JSON.parse(
+    Buffer.from(token.split(".")[1], "base64").toString()
+  );
   const email = decoded?.email;
 
   if (!email) {
@@ -485,7 +572,9 @@ app.post("/toggle-like", async (req, res) => {
 
     if (isLiked) {
       // If already liked, unlike it (remove from likedTracks)
-      user.likedTracks = user.likedTracks.filter((id) => id.toString() !== trackId);
+      user.likedTracks = user.likedTracks.filter(
+        (id) => id.toString() !== trackId
+      );
     } else {
       // If not liked, like it (add to likedTracks)
       user.likedTracks.push(trackId);
@@ -494,7 +583,9 @@ app.post("/toggle-like", async (req, res) => {
     await user.save();
 
     res.status(200).json({
-      message: isLiked ? "Track unliked successfully" : "Track liked successfully",
+      message: isLiked
+        ? "Track unliked successfully"
+        : "Track liked successfully",
       likedTracks: user.likedTracks,
     });
   } catch (error) {
@@ -512,7 +603,9 @@ app.get("/liked-tracks", async (req, res) => {
   }
 
   const token = authHeader.split(" ")[1];
-  const decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+  const decoded = JSON.parse(
+    Buffer.from(token.split(".")[1], "base64").toString()
+  );
   const email = decoded?.email;
 
   if (!email) {
@@ -535,8 +628,6 @@ app.get("/liked-tracks", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
-
-
 
 // Start Server
 const PORT = process.env.PORT || 3000;
